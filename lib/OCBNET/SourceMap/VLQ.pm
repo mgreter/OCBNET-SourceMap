@@ -45,13 +45,32 @@ my $VLQ_BASE_MASK = $VLQ_BASE - 1;
 my $VLQ_CONTINUATION_BIT = $VLQ_BASE;
 
 ####################################################################################################
+# Converts from a two-complement value to a value where the sign bit is
+# is placed in the least significant bit.  For example, as decimals:
+#   1 becomes 2 (10 binary), -1 becomes 3 (11 binary)
+#   2 becomes 4 (100 binary), -2 becomes 5 (101 binary)
+####################################################################################################
 
-sub fromVLQSigned
+sub toVLQSigned ($)
 {
-	# take away first bit (aka "signum")
-	$_[0] & 1 ? - $_[0] >> 1 : $_[0] >> 1;
+	# last bit always indicates the "sign"
+	$_[0] < 0 ? ((- $_[0]) << 1) + 1 : $_[0] << 1
 }
 
+####################################################################################################
+# Converts to a two-complement value from a value where the sign bit is
+# is placed in the least significant bit.  For example, as decimals:
+#   2 (10 binary) becomes 1, 3 (11 binary) becomes -1
+#   4 (100 binary) becomes 2, 5 (101 binary) becomes -2
+####################################################################################################
+
+sub fromVLQSigned ($)
+{
+	# last bit always indicates the "sign"
+	$_[0] & 1 ? - ($_[0] >> 1) : $_[0] >> 1;
+}
+
+####################################################################################################
 ####################################################################################################
 
 sub decodeVLQ
@@ -100,6 +119,43 @@ sub decodeVLQ
 
 	# return results
 	return \ @values;
+
+}
+
+####################################################################################################
+
+sub encodeVLQ
+{
+
+	# final string
+	my $encoded = '';
+
+	# read all passed values
+	foreach my $value (@_)
+	{
+
+		# get vlq representation
+		my $vlq = toVLQSigned($value);
+
+		# write continously
+		do
+		{
+			# create the digit (one base64 char)
+			my $digit = $vlq & $VLQ_BASE_MASK;
+			# remove bits we processed
+			$vlq >>= $VLQ_BASE_SHIFT;
+			# add continuation bit to this digit
+			$digit |= $VLQ_CONTINUATION_BIT if $vlq > 0;
+			# add the base 64 character
+			$encoded .= $VLQ[$digit];
+		}
+		# EO write continously
+		while ($vlq > 0);
+
+	}
+
+	# encoded string
+	return $encoded;
 
 }
 
