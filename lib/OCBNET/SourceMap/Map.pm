@@ -2,11 +2,10 @@
 # Copyright 2013/2014 by Marcel Greter
 # This file is part of OCBNET-SourceMap (GPL3)
 ####################################################################################################
-package OCBNET::SourceMap::V3;
+# map is the main object for the internas
+# it holds a mapping group of rows (aka lines)
 ####################################################################################################
-use base 'OCBNET::SourceMap';
-####################################################################################################
-use OCBNET::SourceMap::VLQ qw(decodeVLQ encodeVLQ);
+package OCBNET::SourceMap::Map;
 ####################################################################################################
 
 use utf8;
@@ -15,44 +14,20 @@ use warnings;
 
 ####################################################################################################
 
-sub init
+sub new
 {
 
-	my ($smap) = @_;
+	# get package name
+	my ($pkg) = @_;
 
-	$smap->{'version'} = 3;
+	# create new hash reference
+	# initialize the rows array
+	my $self = { 'rows' => [] };
 
-	$smap->SUPER::init();
-
-	return $smap;
-
-}
-
-sub decoder
-{
-
-	my ($smap, $json) = @_;
-
-	# map the mappings string to
-	# the real mapping values, which
-	# are still offset from each other
-	my $maps = [ map { [
-	                     map { decodeVLQ($_) }
-	                     split /\s*,\s*/, $_
-	                 ] }
-	                 split /\s*;\s*/,
-	                 $json->{'mappings'}
-	           ];
-
-	$smap->{'mappings'} = $maps;
-
-	$smap->{'names'} = $json->{'names'};
-	$smap->{'sources'} = $json->{'sources'};
+	# return blessed object
+	return bless $self, $pkg;
 
 }
-
-# return format version
-sub version { return 3 }
 
 ####################################################################################################
 ####################################################################################################
