@@ -36,6 +36,7 @@ sub decoder
 	# map the mappings string to
 	# the real mapping values, which
 	# are still offset from each other
+
 	my $maps = [ map { [
 	                     map { decodeVLQ($_) }
 	                     split /\s*,\s*/, $_
@@ -48,6 +49,10 @@ sub decoder
 
 	$smap->{'names'} = $json->{'names'};
 	$smap->{'sources'} = $json->{'sources'};
+	$smap->{'lineCount'} = $json->{'lineCount'};
+
+	$json->{'lineCount'} = $#{$smap->{'mappings'}} unless defined $json->{'lineCount'};
+	$#{$smap->{'mappings'}} = $json->{'lineCount'} if defined $json->{'lineCount'};
 
 }
 

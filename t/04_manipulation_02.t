@@ -27,11 +27,11 @@ substr($data, 0, 0, $data1);
 # die '[' . $data . ']';
 # => "A B C \n X Y Z\n"
 
-is    (scalar(@{$smap->{'sources'}}),            2,       'sources array has correct item number');
+is    (scalar(@{$smap->{'sources'}}),            2,       'sources array has correct item count');
 is    ($smap->{'sources'}->[0],                  'DATA2', 'sources index 0 is set to STDIN2');
 is    ($smap->{'sources'}->[1],                  'DATA1', 'sources index 1 is set to STDIN1');
 
-is    (scalar(@{$smap->{'names'}}),              6,       'names array has correct item number');
+is    (scalar(@{$smap->{'names'}}),              6,       'names array has correct item count');
 is    ($smap->{'names'}->[0],                    'X',     'names index 0 is set to token A');
 is    ($smap->{'names'}->[1],                    'Y',     'names index 1 is set to token B');
 is    ($smap->{'names'}->[2],                    'Z',     'names index 2 is set to token C');
@@ -39,9 +39,9 @@ is    ($smap->{'names'}->[3],                    'A',     'names index 3 is set 
 is    ($smap->{'names'}->[4],                    'B',     'names index 4 is set to token B');
 is    ($smap->{'names'}->[5],                    'C',     'names index 5 is set to token C');
 
-is    (scalar(@{$smap->{'mappings'}}),           3,       'mappings array has correct line number');
+is    (scalar(@{$smap->{'mappings'}}),           3,       'mappings array has correct line count');
 
-is    (scalar(@{$smap->{'mappings'}->[0]}),      3,       'mappings line 0 array has correct group number');
+is    (scalar(@{$smap->{'mappings'}->[0]}),      3,       'mappings line 0 array has correct group count');
 is    ($smap->{'mappings'}->[0]->[0]->[4],       3,       'name 0 is correct'); # A
 is    ($smap->{'mappings'}->[0]->[0]->[1],       1,       'source 0 is correct'); # 1
 is    ($smap->{'mappings'}->[0]->[0]->[0],       0,       'offset 0 is correct'); # A
@@ -52,7 +52,7 @@ is    ($smap->{'mappings'}->[0]->[2]->[4],       5,       'name 2 is correct'); 
 is    ($smap->{'mappings'}->[0]->[2]->[1],       1,       'source 2 is correct'); # 1
 is    ($smap->{'mappings'}->[0]->[2]->[0],       4,       'offset 2 is correct'); # C
 
-is    (scalar(@{$smap->{'mappings'}->[1]}),      3,       'mappings line 1 array has correct group number');
+is    (scalar(@{$smap->{'mappings'}->[1]}),      3,       'mappings line 1 array has correct group count');
 is    ($smap->{'mappings'}->[1]->[0]->[4],       0,       'name 4 is correct'); # X
 is    ($smap->{'mappings'}->[1]->[0]->[1],       0,       'source 4 is correct'); # 0
 is    ($smap->{'mappings'}->[1]->[0]->[0],       1,       'offset 4 is correct'); # X
@@ -70,9 +70,9 @@ substr($data, 5, 1, '');
 # die '[' . $data . ']';
 # => "A B C X Y Z"
 
-is    (scalar(@{$smap->{'mappings'}}),           2,       '2: mappings array has correct line number');
+is    (scalar(@{$smap->{'mappings'}}),           2,       '2: mappings array has correct line count');
 
-is    (scalar(@{$smap->{'mappings'}->[0]}),      6,       '2: mappings line array has correct group number');
+is    (scalar(@{$smap->{'mappings'}->[0]}),      6,       '2: mappings line array has correct group count');
 is    ($smap->{'mappings'}->[0]->[0]->[0],       0,       '2: offset 0 is correct'); # A
 is    ($smap->{'mappings'}->[0]->[1]->[0],       2,       '2: offset 1 is correct'); # B
 is    ($smap->{'mappings'}->[0]->[2]->[0],       4,       '2: offset 2 is correct'); # C

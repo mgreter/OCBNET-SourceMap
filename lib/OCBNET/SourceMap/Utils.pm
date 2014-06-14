@@ -117,11 +117,12 @@ sub debugger
 {
 
 	my $rv = '';
-
+my @rv;
 	my ($lines, $smap) = @_;
 
 my $maps = $smap->{'mappings'};
 
+print "start debugger\n";
 	# expect an array reference
 	if (!UNIVERSAL::isa ($lines, 'ARRAY'))
 	{
@@ -130,13 +131,21 @@ my $maps = $smap->{'mappings'};
 		else { $lines = [ split /\r?\n/, $lines, -1 ] }
 	}
 
+# use Data::Dumper;
+# warn Dumper($smap);
+
+die "no lines" unless $lines;
+die "no lines" unless @{$lines};
+
 	# basic assertion that map is valid
 	if (scalar(@{$lines}) != scalar(@{$maps}) )
-	{ die "map and input have different amount of lines
-		", scalar(@{$lines}), " != ", scalar(@{$maps})
+	{ Carp::croak "map and input have different amount of lines
+		", scalar(@{$lines}), " != ", scalar(@{$maps}); sleep 1;
 		 }
 
-	for (my $row = 0; $row < scalar(@{$maps}); $row++)
+my %files;
+
+	my $row = scalar(@{$maps}); while ($row --)
 	{
 
 		my $cols = $maps->[$row];
@@ -147,35 +156,48 @@ my $maps = $smap->{'mappings'};
 
 		my $offset = 0;
 
-		foreach my $col (@{$cols})
+		foreach my $col (reverse @{$cols})
 		{
 
-			my $title;
+			my ($title);
+
+# next unless $col->[4] && $col->[4] eq -1;
+
+
+			die "what" if (scalar(@{$col}) < 2);
+
+			use File::Slurp qw(read_file);
+			my $src = $smap->{'sources'}->[$col->[1]];
+			$src =~ s/html-14rooms\/global\///;
+			unless (exists $files{$src})
+			{
+				my $filedata = read_file($src) or die "no read_file $src";
+				my $filelines = [ split /\r?\n/, $filedata, -1 ];
+				$files{$src} = [ $filedata, $filelines ];
+
+			}
+
+			my ($filedata, $filelines) = @{ $files{$src} };
+
 
 			# this entry has a token name
-			if (scalar(@{$col}) == 5)
+			if (0 && scalar(@{$col}) == 6)
 			{
+				if (defined $col->[4] && $col->[4] eq -1)
+				{
+					die "hi";
+				}
+
 				$title = $smap->{'names'}->[$col->[4]];
 				die "invalid title access" unless defined $title;
-			}
 
-			# this is a "real" token
-			# but may not have a title
-			if (scalar(@{$col}) >= 4)
-			{
-			}
-
-			next if (scalar(@{$col}) != 5);
-
-			if (length ($title))
-			{
+				$title .= sprintf("\n%s (ln: %d, col: %d)", $src, $col->[2], $col->[3]);
+				$title .= sprintf("\n]]%s", substr($filelines->[$col->[2]], $col->[3], 24)),
 				my $opener = '<span title="' . $title . '">';
 				substr $line, $col->[0] + $offset, 0, $opener;
 				$offset += length($opener);
 
-				#eval
-				{
-					my $l = 1;
+				my $l = 1;
 				my $closer = '</span>';
 				print length($line), ">", $col->[0] + $offset + 1, " vs \n";
 				if (length($line) >= ($col->[0] + $offset + $l))
@@ -187,16 +209,65 @@ my $maps = $smap->{'mappings'};
 				{
 					die "invalid range $offset";
 				}
+
+			}
+			elsif (scalar(@{$col}) >= 4)
+			{
+				my $tok = '_';
+				my $title = '[NA]';
+
+				$title = $smap->{'names'}->[$col->[4]] if defined $col->[4];
+
+				if (defined $col->[4] && $col->[4] eq -1)
+				{
+					$tok = "[-]";
+					$title = "[LOST]";
 				}
+
+				my $text;
+
+				$text = substr($filelines->[$col->[2]], $col->[3], 24) if defined $col->[2] && defined $filelines->[$col->[2]] && length($filelines->[$col->[2]]) >= $col->[3] ;
+
+
+$text = 'err' unless defined $text;
+				$text =~ s/\"/&quot;/g;
+				$text =~ s/</&lt;/g;
+				$text =~ s/>/&gt;/g;
+
+my ($prow, $pcol) = (0, 0);
+my $pre = substr $line, 0, $col->[0] + $offset;
+$pre =~ m/([^\n]*)$/;
+$prow = $pre =~ tr/\n/\n/;
+$pcol = length $1;
+
+				if (defined $col->[4] && $col->[4] eq -1)
+				{
+					$title .= sprintf("\n[%d, %d] -> [%d, %d] ?", $prow, $pcol, $col->[2], $col->[3]);
+				}
+				else
+				{
+					$title .= sprintf("\n[%d, %d] -> %s [%d, %d]", $prow, $pcol, substr($src, - 16), $col->[2], $col->[3]);
+				}
+				$title .= sprintf("\n]]%s", $text);
+
+				my $opener = '<span title="' . $title . '">'.$tok.'</span>';
+				substr $line, $col->[0] + $offset, 0, $opener;
+
+			}
+			else
+			{
+				die "have invalid group";
 			}
 
 		}
-
-		$rv .= $line . '<br/>';
+unshift(@rv, $line);
+		# $rv = $line . '<br/>' . $rv;
 
 	}
 
-	return $rv;
+print "final debugger\n";
+
+	return join("<br/>", @rv);
 
 }
 

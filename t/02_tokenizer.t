@@ -21,10 +21,10 @@ is    (ref $smap->{'mappings'},                'ARRAY',   'mappings is an array'
 
 is    ($smap->{'lineCount'},                   1,         'lineCount is set correctly');
 
-is    (scalar(@{$smap->{'names'}}),            3,         'names array has correct item number');
-is    (scalar(@{$smap->{'sources'}}),          1,         'sources array has correct item number');
-is    (scalar(@{$smap->{'mappings'}}),         1,         'mappings array has correct line number');
-is    (scalar(@{$smap->{'mappings'}->[0]}),    4,         'mappings line array has correct group number');
+is    (scalar(@{$smap->{'names'}}),            3,         'names array has correct item count');
+is    (scalar(@{$smap->{'sources'}}),          1,         'sources array has correct item count');
+is    (scalar(@{$smap->{'mappings'}}),         1,         'mappings array has correct line count');
+is    (scalar(@{$smap->{'mappings'}->[0]}),    4,         'mappings line array has correct group count');
 
 is    ($smap->{'sources'}->[0],                'STDIN',   'sources index 0 is set to STDIN');
 

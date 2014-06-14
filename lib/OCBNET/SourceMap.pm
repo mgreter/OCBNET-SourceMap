@@ -15,6 +15,7 @@ use File::Slurp qw(read_file write_file);
 ####################################################################################################
 use OCBNET::SourceMap::VLQ qw(decodeVLQ encodeVLQ);
 ####################################################################################################
+require OCBNET::SourceMap::V3;
 require OCBNET::SourceMap::Map;
 require OCBNET::SourceMap::Row;
 require OCBNET::SourceMap::Col;
@@ -37,17 +38,76 @@ sub new
 sub init
 {
 
-	my ($smap) = @_;
+	my ($smap, $lines, $source) = @_;
 
-	# number of source lines
-	$smap->{'lineCount'} = 0;
+	$lines = [] unless defined $lines;
+
+	# expect an array reference
+	if (!UNIVERSAL::isa ($lines, 'ARRAY'))
+	{
+		if (UNIVERSAL::isa ($lines, 'SCALAR'))
+		{ $lines = [ split /\r?\n/, ${$lines}, -1 ] }
+		else { $lines = [ split /\r?\n/, $lines, -1 ] }
+	}
+
 	# array for indexed names
 	$smap->{'names'} = [];
 	# array for source files
-	$smap->{'sources'} = [];
+	$smap->{'sources'} = $source?  [ $source ] : [];
+	# number of source lines
+	$smap->{'lineCount'} = scalar(@{$lines});
 	# array for source mappings
 	# one map entry for each line
-	$smap->{'mappings'} = [];
+	$smap->{'mappings'} = [ map { [] } @{$lines} ];
+
+#die "==", @{$lines};
+
+	if (scalar(@{$smap->{'mappings'}}) > 0)
+	{
+		my $len = length $lines->[-1];
+		push @{$smap->{'mappings'}->[0]}, [ 0, 0, 0, 0 ];
+		push @{$smap->{'mappings'}->[-1]}, [ $len, 0, 0, 0 ];
+	}
+
+	return $smap;
+
+}
+
+
+sub init2
+{
+
+	my ($smap, $lines, $source) = @_;
+
+
+	$lines = [] unless defined $lines;
+
+	# expect an array reference
+	if (!UNIVERSAL::isa ($lines, 'ARRAY'))
+	{
+		if (UNIVERSAL::isa ($lines, 'SCALAR'))
+		{ $lines = [ split /\r?\n/, ${$lines}, -1 ] }
+		else { $lines = [ split /\r?\n/, $lines, -1 ] }
+	}
+
+	# array for indexed names
+	$smap->{'names'} = [];
+	# array for source files
+	$smap->{'sources'} = $source?  [ $source ] : [];
+	# number of source lines
+	$smap->{'lineCount'} = scalar(@{$lines});
+	# array for source mappings
+	# one map entry for each line
+	$smap->{'mappings'} = [ map { [] } @{$lines} ];
+
+
+	if (scalar(@{$smap->{'mappings'}}) > 0)
+	{
+		my $idx = $#{$smap->{'mappings'}};
+		my $len = length $lines->[$idx];
+		push @{$smap->{'mappings'}->[0]}, [ 0, 0, 0, 0 ];
+		push @{$smap->{'mappings'}->[$idx]}, [ $len, 0, $idx, 0 ];
+	}
 
 	return $smap;
 
@@ -59,29 +119,33 @@ sub init
 sub read
 {
 
-	my ($smap, $source) = @_;
+	my ($smap, $json) = @_;
 
-	# get source from scalar
-	if (ref $source eq 'SCALAR')
+	# check for correct json
+	if (ref $json ne 'HASH')
 	{
-		# unwrap scalar data
-		$source = ${$source};
-	}
-	# maybe also check for IO::File
-	elsif (ref $source eq 'GLOB')
-	{
-		$source = read_file($source);
-		die "fatal" unless defined $source;
-	}
-	# got a ordinary path
-	elsif (defined $source)
-	{
-		$source = read_file($source);
-		die "fatal" unless defined $source;
+		# get source from scalar
+		if (ref $json eq 'SCALAR')
+		{
+			# unwrap scalar data
+			$json = ${$json};
+		}
+		# maybe also check for IO::File
+		elsif (ref $json eq 'GLOB')
+		{
+			$json = read_file($json);
+			die "fatal" unless defined $json;
+		}
+		# got a ordinary path
+		elsif (defined $json)
+		{
+			$json = read_file($json);
+			die "fatal" unless defined $json;
+		}
+		# decode json data to perl hash
+		$json = decode_json($json);
 	}
 
-	# decode json data to perl hash
-	my $json = decode_json($source);
 	die "fatal" unless defined $json;
 
 	if ($json->{'version'} eq '3')
@@ -103,6 +167,210 @@ sub read
 	$smap->importer;
 
 return $smap;
+
+}
+
+sub remap
+{
+
+	my ($smap, $org) = @_;
+	print "generating remap\n";
+	#return $smap;
+
+
+#my $dmp = $org;
+#@{$dmp->{'mappings'}} = grep {
+#	$_ && scalar(@{$_})
+#} @{$dmp->{'mappings'}};
+#die Data::Dumper::Dumper ($dmp);
+
+	my ($fid) = (0);
+
+	my $lines = $smap->{'mappings'};
+	use Benchmark;
+	my $t0 = Benchmark->new;
+
+	my ($a, $b, $c, $d) = (0, 0, 0, 0);
+# die Data::Dumper::Dumper ($org);
+
+	my @rowcache;
+
+	my $l = scalar @{$org->{'mappings'}};
+
+	for(my $i = 0; $i < $l; $i++)
+	{
+
+		if (scalar(@{$org->{'mappings'}->[$i]}))
+		{
+			$rowcache[$i] = $org->{'mappings'}->[$i]->[-1];
+			$rowcache[$i]->[2] = 0;
+		}
+		else
+		{
+			# die "first must have token" if $i == 0;
+			$rowcache[$i] = $i==0 ? [ 0,0,0,0 ] : [ @{$rowcache[$i - 1]} ];
+			$rowcache[$i]->[2] ++;
+		}
+
+	}
+
+my ($x, $y, $z, $foo) = (0,0,0, 0);
+			if ($org->{'new'})
+			{
+				$org->{'new'} = 0;
+# return $smap;
+	foreach my $line (@{$lines})
+	{
+		$a ++;
+		# process all tokens of line
+		foreach my $group (@{$line})
+		{
+			# get row were pointing at
+			my $row = $group->[2];
+				my $original = $rowcache[$row];
+				# point to where we originaly point
+				$fid = $group->[1] = $original->[1]; # fid
+				$group->[2] = $original->[2]; # row
+				# $group->[3] = $original->[3]; # col
+}}
+#$#{$smap->{'mappings'}} = $#{$org->{'mappings'}};
+#				die $#{$org->{'mappings'}} , " vs ", $#{$smap->{'mappings'}} unless $#{$org->{'mappings'}} == $#{$smap->{'mappings'}};
+
+# splice @{$smap->{'mappings'}}, $#{$org->{'mappings'}};
+			}
+			else
+			{
+	$smap->{'names'} = $org->{'names'};
+
+	# process all existing lines
+	# these are the already processed ones
+	# they point to somewhere in the originals
+	foreach my $line (@{$lines})
+	{
+		$a ++;
+		# process all tokens of line
+		foreach my $group (@{$line})
+		{
+			$b ++;
+my $l;
+
+			# get row were pointing at
+			my $row;
+
+			# find last token in the originals to
+			# know where it actually was pointing at
+			for ($row = $group->[2]; $row != -1; $row --)
+			{
+				$c ++;
+my $fafa = 0;
+
+				# since we can switch between rows anytime
+				# we have to redo this search over and over again
+				my $maps = $org->{'mappings'}->[$row];
+last unless scalar(@{$maps});
+die "unexpected loop" if $row ne $group->[2];
+
+				die "remap has invalid state" unless $maps;
+				die "remap has invalid state" unless scalar(@{$maps});
+
+my $original;
+
+				# find original position from the right
+				# $l = scalar(@{$maps}); while ($l --)
+				for ($l = 0; $l < scalar(@{$maps}); $l++)
+				{
+					$d ++;
+					# get the original group
+					$original = $maps->[$l];
+					die unless $original;
+					die "wha" if @{$original} < 3;
+					# check if we found nearest offset
+					if ($original->[0] == $group->[3])
+					{
+						# point to where we originaly point
+						$fid = $group->[1] = $original->[1]; # fid
+						# $group->[2] = $original->[2]; # row
+						# $group->[3] = $original->[3]; # col
+						# adjust col by possible previous offset
+						die "strange" if $row != $group->[2];
+						# found an exact match to go
+						$y++; $fafa = 1;
+						# $group = [ @{$group}[ 0 .. 1 ], @{$original}[ 2 .. $#{$original} ] ];
+						$group->[2] = $original->[2];
+						$group->[3] = $original->[3];
+						$group->[4] = $original->[4];
+						last;
+					}
+					elsif ($original->[0] > $group->[3])
+					{
+
+						# skip
+						# last;
+
+						# warn $original->[0] - $group->[3] if ($original->[0] - $group->[3]) > 0;
+
+						# point to where we originaly point
+						$fid = $group->[1] = $original->[1]; # fid
+						$z++; $fafa = 1;
+						$group->[2] = $original->[2];
+						$group->[3] = $original->[3];
+						$group->[4] = $original->[4];
+						last;
+
+						die "can abort, will not find me";
+					}
+
+
+
+				}
+				# EO search from right
+
+unless ($fafa)
+{
+
+#	die "japa" if $l == -1;
+
+							$foo ++;
+#							die "skipp";
+						# die "we skipp $group->[0] " . @{$smap->{'mappings'}->[$row]} if $group->[0] && $row;
+							# group->[2] points to line 12983, col 3
+							# original->[12983] first item points at col 11
+							#warn "$a, ", join(", ", @{$group}), " ==== ", join(", ", @{$org->{'mappings'}->[$group->[2]]->[0]}), " --> ", $org->{'sources'}->[0];
+							$group->[4] = -1;
+							last if $original;
+}
+
+				last
+
+			};
+
+			die "nog ood" if $row eq -1 && $l eq -1;
+		}
+	}
+}
+	# replace sources (use original mappings)
+	$smap->{'sources'} = $org->{'sources'};
+
+	my $counta = 0; my $countb = 0;
+
+	foreach my $foo (@{$smap->{'mappings'}})
+	{ $counta += scalar (@{$foo}) }
+	foreach my $foo (@{$org->{'mappings'}})
+	{ $countb += scalar (@{$foo}) }
+
+	print "finished remap ($counta/$countb) -> init: $x / exact: $y / same line: $z / skipped: $foo\n";
+
+	foreach my $lna (@{$smap->{'mappings'}})
+	{
+#		@{$lna} = grep { !$_->[4] || $_->[4] != -1 } @{$lna};
+	}
+
+	my $t1 = Benchmark->new;
+	my $td = timediff($t1, $t0);
+	print "the code took:",timestr($td)," $a $b $c $d\n";
+
+	# return object
+	return $smap;
 
 }
 
@@ -232,10 +500,61 @@ sub render
 ###################################################################################################
 ###################################################################################################
 
+sub add
+{
+
+	my ($smap, $data, $add) = @_;
+
+	$smap->{'data'} = '' unless exists $smap->{'data'};
+
+	# declare line mapping array
+	my $lines = $smap->{'mappings'};
+	$lines = [] unless defined $lines;
+	# create first group if not yet existing
+	# this represents basically an empty string
+	$lines->[0] = [] if (scalar(@{$lines}) == 0);
+
+	my $row = $#{$smap->{'mappings'}};
+
+my $col;
+
+	# there is some entry in this row
+	# must be the last thing in there
+	# we cannot get a better position
+	# that why we have mixin with row/col!
+	if (scalar(@{$smap->{'mappings'}->[$row]}))
+	{
+		$col = $smap->{'mappings'}->[$row]->[-1]->[0];
+	}
+	else
+	{
+		$col = 0;
+	}
+
+#	$row ++ if
+
+#	${$data} =~ m/([^\n]+)\z/;
+#	my $col = length $1;
+
+
+#warn "ADDING ${$data} at $row:$col\n";
+#warn "X" x 70, "\n";
+#warn Data::Dumper::Dumper($add);
+#warn "X" x 70, "\n";
+
+	$smap->mixin([$row, $col], [0, 0], $add);
+
+# warn $row, " - ", $col;
+
+	# push first new line on to previous line
+#	push @{$lines->[-1]}
+
+}
+
 # append more source lines
 # also adds a new source file
 # this operation has nearly no cost
-sub append
+sub append123
 {
 
 	# get the data and src path
@@ -404,6 +723,16 @@ $insert = { 'mappings' => [], 'names' => [], 'sources' => [] } unless defined $i
 		}
 
 	}
+
+	if (scalar(@{$oldmaps}))
+	{
+		$smap->{'lineCount'} += scalar $#newmaps;
+	}
+	else
+	{
+		$smap->{'lineCount'} += scalar @newmaps;
+	}
+
 
 # warn "X" x 50;
 return $smap unless scalar @newmaps;
