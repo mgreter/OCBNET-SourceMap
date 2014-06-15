@@ -112,6 +112,8 @@ my $line = $line2;
 ####################################################################################################
 # debugger is really just usefull during developement
 ####################################################################################################
+use File::Slurp qw(read_file);
+####################################################################################################
 
 sub debugger
 {
@@ -119,10 +121,13 @@ sub debugger
 	my $rv = '';
 my @rv;
 	my ($lines, $smap) = @_;
-
+return;
 my $maps = $smap->{'mappings'};
 
-print "start debugger\n";
+	# use Data::Dumper;
+	# warn Dumper($smap);
+
+	print "start debugger\n";
 	# expect an array reference
 	if (!UNIVERSAL::isa ($lines, 'ARRAY'))
 	{
@@ -131,20 +136,24 @@ print "start debugger\n";
 		else { $lines = [ split /\r?\n/, $lines, -1 ] }
 	}
 
-# use Data::Dumper;
-# warn Dumper($smap);
-
-die "no lines" unless $lines;
-die "no lines" unless @{$lines};
+	# assertion for input data
+	die "no lines" unless $lines;
+	die "no lines" unless @{$lines};
 
 	# basic assertion that map is valid
 	if (scalar(@{$lines}) != scalar(@{$maps}) )
-	{ Carp::croak "map and input have different amount of lines
-		", scalar(@{$lines}), " != ", scalar(@{$maps}); sleep 1;
-		 }
+	{
+		Carp::croak sprintf "%s [lines: %d, rows: %d]",
+			"map and input have different amount of lines",
+			scalar(@{$lines}), scalar(@{$maps}); sleep 1;
+	}
 
-my %files;
+	# cache of loaded source files
+	# only load each source once
+	my %sources;
 
+	# process everything from the end
+	# this way we can manipulate the input
 	my $row = scalar(@{$maps}); while ($row --)
 	{
 
@@ -166,52 +175,23 @@ my %files;
 
 			die "what" if (scalar(@{$col}) < 2);
 
-			use File::Slurp qw(read_file);
+			# fix it for our test cases, sort this out
+			# correctly later when it works reliable
 			my $src = $smap->{'sources'}->[$col->[1]];
 			$src =~ s/html-14rooms\/global\///;
-			unless (exists $files{$src})
+
+			unless (exists $sources{$src})
 			{
 				my $filedata = read_file($src) or die "no read_file $src";
 				my $filelines = [ split /\r?\n/, $filedata, -1 ];
-				$files{$src} = [ $filedata, $filelines ];
+				$sources{$src} = [ $filedata, $filelines ];
 
 			}
 
-			my ($filedata, $filelines) = @{ $files{$src} };
-
+			my ($filedata, $filelines) = @{ $sources{$src} };
 
 			# this entry has a token name
-			if (0 && scalar(@{$col}) == 6)
-			{
-				if (defined $col->[4] && $col->[4] eq -1)
-				{
-					die "hi";
-				}
-
-				$title = $smap->{'names'}->[$col->[4]];
-				die "invalid title access" unless defined $title;
-
-				$title .= sprintf("\n%s (ln: %d, col: %d)", $src, $col->[2], $col->[3]);
-				$title .= sprintf("\n]]%s", substr($filelines->[$col->[2]], $col->[3], 24)),
-				my $opener = '<span title="' . $title . '">';
-				substr $line, $col->[0] + $offset, 0, $opener;
-				$offset += length($opener);
-
-				my $l = 1;
-				my $closer = '</span>';
-				print length($line), ">", $col->[0] + $offset + 1, " vs \n";
-				if (length($line) >= ($col->[0] + $offset + $l))
-				{
-					substr($line, $col->[0] + $offset + $l, 0) = $closer;
-					$offset += length($closer);
-				}
-				else
-				{
-					die "invalid range $offset";
-				}
-
-			}
-			elsif (scalar(@{$col}) >= 4)
+			if (scalar(@{$col}) >= 4)
 			{
 				my $tok = '_';
 				my $title = '[NA]';
@@ -227,18 +207,16 @@ my %files;
 				my $text;
 
 				$text = substr($filelines->[$col->[2]], $col->[3], 24) if defined $col->[2] && defined $filelines->[$col->[2]] && length($filelines->[$col->[2]]) >= $col->[3] ;
-
-
-$text = 'err' unless defined $text;
+				$text = 'err' unless defined $text;
 				$text =~ s/\"/&quot;/g;
 				$text =~ s/</&lt;/g;
 				$text =~ s/>/&gt;/g;
 
-my ($prow, $pcol) = (0, 0);
-my $pre = substr $line, 0, $col->[0] + $offset;
-$pre =~ m/([^\n]*)$/;
-$prow = $pre =~ tr/\n/\n/;
-$pcol = length $1;
+				my ($prow, $pcol) = (0, 0);
+				my $pre = substr $line, 0, $col->[0] + $offset;
+				$pre =~ m/([^\n]*)$/;
+				$prow = $pre =~ tr/\n/\n/;
+				$pcol = length $1;
 
 				if (defined $col->[4] && $col->[4] eq -1)
 				{
@@ -248,9 +226,11 @@ $pcol = length $1;
 				{
 					$title .= sprintf("\n[%d, %d] -> %s [%d, %d]", $prow, $pcol, substr($src, - 16), $col->[2], $col->[3]);
 				}
+
 				$title .= sprintf("\n]]%s", $text);
 
 				my $opener = '<span title="' . $title . '">'.$tok.'</span>';
+
 				substr $line, $col->[0] + $offset, 0, $opener;
 
 			}
@@ -260,14 +240,15 @@ $pcol = length $1;
 			}
 
 		}
-unshift(@rv, $line);
+
+		push (@rv, $line);
 		# $rv = $line . '<br/>' . $rv;
 
 	}
 
 print "final debugger\n";
 
-	return join("<br/>", @rv);
+	return join("<br/>", reverse @rv);
 
 }
 

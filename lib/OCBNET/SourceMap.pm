@@ -186,6 +186,15 @@ sub remap
 
 	my ($fid) = (0);
 
+# create "index" to fasten "lookup"
+# premise: the groups have to be sorted
+
+my $index_row_size = 20;
+
+
+
+my @rowindex;
+
 	my $lines = $smap->{'mappings'};
 	use Benchmark;
 	my $t0 = Benchmark->new;
@@ -195,21 +204,62 @@ sub remap
 
 	my @rowcache;
 
-	my $l = scalar @{$org->{'mappings'}};
+	# build a lookup data structure to speed up
+	# lookup for a specific col offset in a row
+	my $old_row_length = scalar @{$org->{'mappings'}};
 
-	for(my $i = 0; $i < $l; $i++)
+	# process all old maps to create index
+	for(my $old_row = 0; $old_row < $old_row_length; $old_row++)
 	{
 
-		if (scalar(@{$org->{'mappings'}->[$i]}))
+		# create col index
+		my @colindex;
+
+		# only if worth the price
+		if (
+			# minimal cols to search for later
+			scalar(@{$org->{'mappings'}->[$old_row]}) > 10 &&
+			# and some minimal col offset
+			$org->{'mappings'}->[$old_row]->[-1]->[0] > 20
+		)
 		{
-			$rowcache[$i] = $org->{'mappings'}->[$i]->[-1];
-			$rowcache[$i]->[2] = 0;
+			# next fixed offset
+			# increment by block size
+			my $next_offset = 0;
+			# process all cols from the old mapping line/row
+			my $l = scalar(@{$org->{'mappings'}->[$old_row]});
+			for (my $old_col = 0; $old_col < $l; $old_col++)
+			{
+				# get the current offset from the original mappings (absolute offset)
+				my $current_offset = $org->{'mappings'}->[$old_row]->[$old_col]->[0];
+				# fill the index array if spots are missings
+				while ($current_offset > $next_offset)
+				{
+					push @colindex, $old_col - 1;
+					$next_offset += $index_row_size;
+				}
+				# set the col index for the next offset spot
+				while ($current_offset >= $next_offset)
+				{
+					push @colindex, $old_col;
+					$next_offset += $index_row_size;
+				}
+			}
+			# push/set the col to row index
+			$rowindex[$old_row] = \ @colindex;
+		}
+		# EO creating rowindex
+
+		if (scalar(@{$org->{'mappings'}->[$old_row]}))
+		{
+			$rowcache[$old_row] = $org->{'mappings'}->[$old_row]->[-1];
+			$rowcache[$old_row]->[2] = 0;
 		}
 		else
 		{
-			# die "first must have token" if $i == 0;
-			$rowcache[$i] = $i==0 ? [ 0,0,0,0 ] : [ @{$rowcache[$i - 1]} ];
-			$rowcache[$i]->[2] ++;
+			# die "first must have token" if $old_row == 0;
+			$rowcache[$old_row] = $old_row==0 ? [ 0,0,0,0 ] : [ @{$rowcache[$old_row - 1]} ];
+			$rowcache[$old_row]->[2] ++;
 		}
 
 	}
@@ -241,7 +291,7 @@ my ($x, $y, $z, $foo) = (0,0,0, 0);
 			else
 			{
 	$smap->{'names'} = $org->{'names'};
-
+print "prepared remap\n";
 	# process all existing lines
 	# these are the already processed ones
 	# they point to somewhere in the originals
@@ -273,13 +323,25 @@ die "unexpected loop" if $row ne $group->[2];
 				die "remap has invalid state" unless $maps;
 				die "remap has invalid state" unless scalar(@{$maps});
 
+# $group->[3];
 my $original;
 
+# find a better offset from the cache -> go further on the $l
+				my $l = $rowindex[$row]->[($group->[3] - $group->[3] % $index_row_size) / $index_row_size];
+# die $group->[3], " :: ", ($group->[3] - $group->[3] % $index_row_size) / $index_row_size if (($group->[3] - $group->[3] % $index_row_size) / $index_row_size);
+# die "found $l" if $l;
+#die "ground index ", $rowindex[$row], "$l - " . (($group->[3] - $group->[3] % $index_row_size) / $index_row_size);
+#die "nop $l ", $org->{'mappings'}->[$row]->[$l]->[0], " -> ", $group->[3] if ($org->{'mappings'}->[$row]->[$l]->[0] ne $group->[3]);
+
+my $dup = $l;
+				$l = 0 unless defined $l;
+my $qweqwe = 0;
 				# find original position from the right
 				# $l = scalar(@{$maps}); while ($l --)
-				for ($l = 0; $l < scalar(@{$maps}); $l++)
+				for ($l; $l < scalar(@{$maps}); $l++)
 				{
 					$d ++;
+					# die "wrong $dup ", scalar @{$rowindex[$row]}, " a ", $group->[3], " - ", (($group->[3] - $group->[3] % $index_row_size) / $index_row_size) if $qweqwe ++ > 300;
 					# get the original group
 					$original = $maps->[$l];
 					die unless $original;
@@ -305,7 +367,7 @@ my $original;
 					{
 
 						# skip
-						# last;
+						last;
 
 						# warn $original->[0] - $group->[3] if ($original->[0] - $group->[3]) > 0;
 

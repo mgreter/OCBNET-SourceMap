@@ -7,7 +7,7 @@ use JSON qw(decode_json);
 use File::Slurp qw(read_file write_file);
 use MIME::Base64 qw( decode_base64 encode_base64 );
 # my $content = read_file ( 'jquery-1.11.1.min.map' );
-my $content = read_file ( 'output.js.map' );
+my $content = read_file ( 'output.tst.map' );
 
 my @chars = ('A' .. 'Z', 'a' ..'z', '0' .. '9', '+', '/');
 
@@ -38,7 +38,6 @@ sub fromVLQSigned
 
 
 }
-
 
 my $srcmap = decode_json ($content);
 
@@ -102,7 +101,7 @@ my $col = 0;
 my $file = 0;
 my $factory = 0;
 
-#die Data::Dumper::Dumper $srcmap->{'lines'}->[1	];
+#die Data::Dumper::Dumper $srcmap->{'lines'}->[1];
 foreach my $line (@{$srcmap->{'lines'}})
 {
 
