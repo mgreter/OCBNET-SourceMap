@@ -121,7 +121,7 @@ sub debugger
 	my $rv = '';
 my @rv;
 	my ($lines, $smap) = @_;
-return;
+
 my $maps = $smap->{'mappings'};
 
 	# use Data::Dumper;
@@ -137,8 +137,10 @@ my $maps = $smap->{'mappings'};
 	}
 
 	# assertion for input data
-	die "no lines" unless $lines;
-	die "no lines" unless @{$lines};
+	Carp::croak "no maps" unless $maps;
+	Carp::croak "no lines" unless $lines;
+	Carp::croak "no maps" unless @{$maps};
+	Carp::croak "no lines" unless @{$lines};
 
 	# basic assertion that map is valid
 	if (scalar(@{$lines}) != scalar(@{$maps}) )
@@ -151,6 +153,8 @@ my $maps = $smap->{'mappings'};
 	# cache of loaded source files
 	# only load each source once
 	my %sources;
+
+	$sources{'STDIN'} = [ 'STDIN', [] ];
 
 	# process everything from the end
 	# this way we can manipulate the input
@@ -178,13 +182,21 @@ my $maps = $smap->{'mappings'};
 			# fix it for our test cases, sort this out
 			# correctly later when it works reliable
 			my $src = $smap->{'sources'}->[$col->[1]];
-			$src =~ s/html-14rooms\/global\///;
+			# $src =~ s/html-14rooms\/global\///;
 
 			unless (exists $sources{$src})
 			{
-				my $filedata = read_file($src) or die "no read_file $src";
-				my $filelines = [ split /\r?\n/, $filedata, -1 ];
-				$sources{$src} = [ $filedata, $filelines ];
+				if ($src =~ m/^\s*\>/)
+				{
+					$sources{$src} = [ "dad", [] ];
+				}
+				else
+				{
+					my $filedata = read_file($src) or die "no read_file $src";
+					warn " -------- ", $src, "\n";
+					my $filelines = [ split /\r?\n/, $filedata, -1 ];
+					$sources{$src} = [ $filedata, $filelines ];
+				}
 
 			}
 
@@ -248,7 +260,16 @@ my $maps = $smap->{'mappings'};
 
 print "final debugger\n";
 
-	return join("<br/>", reverse @rv);
+	my @addon = ('<hr/><ul>');
+
+	foreach my $source (@{$smap->{'sources'}})
+	{
+		push @addon, '<li>', $source, '</li>';
+	}
+
+	push @addon, '</ul>';
+
+	return join("<br/>", reverse(@rv), join ("", @addon));
 
 }
 

@@ -53,7 +53,7 @@ sub init
 	# array for indexed names
 	$smap->{'names'} = [];
 	# array for source files
-	$smap->{'sources'} = $source?  [ $source ] : [];
+	$smap->{'sources'} = $source ? [ $source ] : [];
 	# number of source lines
 	$smap->{'lineCount'} = scalar(@{$lines});
 	# array for source mappings
@@ -170,132 +170,147 @@ return $smap;
 
 }
 
+####################################################################################################
+# we create an access index for each line to speed up look ups
+# this brings down the execution time by a factor of 10 to 1000
+# define at which offsets (gaps between) to create access point
+####################################################################################################
+
+# set to zero to disable
+my $index_col_gap = 15;
+
+####################################################################################################
+
 sub remap
 {
 
-	my ($smap, $org) = @_;
+	my ($cur, $old) = @_;
 	print "generating remap\n";
-	#return $smap;
-
-
-#my $dmp = $org;
-#@{$dmp->{'mappings'}} = grep {
-#	$_ && scalar(@{$_})
-#} @{$dmp->{'mappings'}};
-#die Data::Dumper::Dumper ($dmp);
 
 	my ($fid) = (0);
 
-# create "index" to fasten "lookup"
-# premise: the groups have to be sorted
-
-my $index_row_size = 20;
 
 
-
-my @rowindex;
-
-	my $lines = $smap->{'mappings'};
 	use Benchmark;
 	my $t0 = Benchmark->new;
 
 	my ($a, $b, $c, $d) = (0, 0, 0, 0);
-# die Data::Dumper::Dumper ($org);
+	# die Data::Dumper::Dumper ($old);
 
-	my @rowcache;
+	# map index array
+	my @old_map_idx;
+	# row index array
+	my @old_row_idx;
 
 	# build a lookup data structure to speed up
 	# lookup for a specific col offset in a row
-	my $old_row_length = scalar @{$org->{'mappings'}};
+	my $old_row_len = scalar @{$old->{'mappings'}};
 
-	# process all old maps to create index
-	for(my $old_row = 0; $old_row < $old_row_length; $old_row++)
+	# process all old row mappings to create an access index
+	# this is used to search for a given map at a given offset
+	# maps are basically a linked list for each row, so this gives
+	# us an initial offset so we do not need to traverse that much
+	for(my $old_row = 0; $old_row < $old_row_len; $old_row++)
 	{
 
-		# create col index
-		my @colindex;
+		# col index array
+		my @old_col_idx;
 
-		# only if worth the price
-		if (
-			# minimal cols to search for later
-			scalar(@{$org->{'mappings'}->[$old_row]}) > 10 &&
-			# and some minimal col offset
-			$org->{'mappings'}->[$old_row]->[-1]->[0] > 20
+		# process only if worth the price
+		if ( $index_col_gap > 0 &&
+			# only create for minimal cols to search for later
+			scalar(@{$old->{'mappings'}->[$old_row]}) > 10 &&
+			# and some minimal maximum col offset (long lines)
+			$old->{'mappings'}->[$old_row]->[-1]->[0] > 20
 		)
 		{
-			# next fixed offset
-			# increment by block size
-			my $next_offset = 0;
+			# next fixed col offset
+			# increment by gap offset
+			my $nxt_col_off = 0;
 			# process all cols from the old mapping line/row
-			my $l = scalar(@{$org->{'mappings'}->[$old_row]});
-			for (my $old_col = 0; $old_col < $l; $old_col++)
+			my $old_col_len = scalar(@{$old->{'mappings'}->[$old_row]});
+			for (my $old_col = 0; $old_col < $old_col_len; $old_col++)
 			{
 				# get the current offset from the original mappings (absolute offset)
-				my $current_offset = $org->{'mappings'}->[$old_row]->[$old_col]->[0];
-				# fill the index array if spots are missings
-				while ($current_offset > $next_offset)
+				my $cur_col_off = $old->{'mappings'}->[$old_row]->[$old_col]->[0];
+				# fill the index if spots are missings
+				while ($cur_col_off > $nxt_col_off)
 				{
-					push @colindex, $old_col - 1;
-					$next_offset += $index_row_size;
+					push @old_col_idx, $old_col - 1;
+					$nxt_col_off += $index_col_gap;
 				}
-				# set the col index for the next offset spot
-				while ($current_offset >= $next_offset)
+				# set the col index for the next spot
+				if ($cur_col_off == $nxt_col_off)
 				{
-					push @colindex, $old_col;
-					$next_offset += $index_row_size;
+					push @old_col_idx, $old_col - 0;
+					$nxt_col_off += $index_col_gap;
 				}
 			}
-			# push/set the col to row index
-			$rowindex[$old_row] = \ @colindex;
+			# push the col index array to map index
+			$old_map_idx[$old_row] = \ @old_col_idx;
 		}
-		# EO creating rowindex
+		# EO creating old_map_idx
 
-		if (scalar(@{$org->{'mappings'}->[$old_row]}))
+		if ($old->{'new'})
 		{
-			$rowcache[$old_row] = $org->{'mappings'}->[$old_row]->[-1];
-			$rowcache[$old_row]->[2] = 0;
-		}
-		else
-		{
-			# die "first must have token" if $old_row == 0;
-			$rowcache[$old_row] = $old_row==0 ? [ 0,0,0,0 ] : [ @{$rowcache[$old_row - 1]} ];
-			$rowcache[$old_row]->[2] ++;
-		}
 
+			# pick up original source context
+			if (scalar(@{$old->{'mappings'}->[$old_row]}))
+			{
+				$old_row_idx[$old_row] = $old->{'mappings'}->[$old_row]->[-1];
+				$old_row_idx[$old_row]->[2] = 0;
+			}
+			elsif ($old_row == 0)
+			{
+				# create initial map for start of file
+				$old_row_idx[$old_row] = [ 0,0,0,0 ];
+			}
+			else
+			{
+				# get attributes from previous entry (off, src, row, col)
+				$old_row_idx[$old_row] = [ @{$old_row_idx[$old_row - 1]} ];
+				# increase previous row index by one
+				$old_row_idx[$old_row]->[2] ++;
+			}
+
+		}
 	}
+	# EO process old_row_len
 
 my ($x, $y, $z, $foo) = (0,0,0, 0);
-			if ($org->{'new'})
-			{
-				$org->{'new'} = 0;
-# return $smap;
-	foreach my $line (@{$lines})
+
+	if ($old->{'new'})
 	{
-		$a ++;
-		# process all tokens of line
-		foreach my $group (@{$line})
+
+		# Carp::confess;
+		$old->{'new'} = 0;
+
+		# return $cur;
+		foreach my $line (@{$cur->{'mappings'} || []})
 		{
-			# get row were pointing at
-			my $row = $group->[2];
-				my $original = $rowcache[$row];
+			$a ++;
+			# process all tokens of line
+			foreach my $group (@{$line})
+			{
+				# get row were pointing at
+				my $row = $group->[2];
+				my $original = $old_row_idx[$row];
 				# point to where we originaly point
 				$fid = $group->[1] = $original->[1]; # fid
 				$group->[2] = $original->[2]; # row
 				# $group->[3] = $original->[3]; # col
-}}
-#$#{$smap->{'mappings'}} = $#{$org->{'mappings'}};
-#				die $#{$org->{'mappings'}} , " vs ", $#{$smap->{'mappings'}} unless $#{$org->{'mappings'}} == $#{$smap->{'mappings'}};
-
-# splice @{$smap->{'mappings'}}, $#{$org->{'mappings'}};
 			}
-			else
+		}
+
+	}
+	else
 			{
-	$smap->{'names'} = $org->{'names'};
+	$cur->{'names'} = $old->{'names'};
 print "prepared remap\n";
 	# process all existing lines
 	# these are the already processed ones
 	# they point to somewhere in the originals
-	foreach my $line (@{$lines})
+	foreach my $line (@{$cur->{'mappings'} || []})
 	{
 		$a ++;
 		# process all tokens of line
@@ -316,7 +331,7 @@ my $fafa = 0;
 
 				# since we can switch between rows anytime
 				# we have to redo this search over and over again
-				my $maps = $org->{'mappings'}->[$row];
+				my $maps = $old->{'mappings'}->[$row];
 last unless scalar(@{$maps});
 die "unexpected loop" if $row ne $group->[2];
 
@@ -327,21 +342,21 @@ die "unexpected loop" if $row ne $group->[2];
 my $original;
 
 # find a better offset from the cache -> go further on the $l
-				my $l = $rowindex[$row]->[($group->[3] - $group->[3] % $index_row_size) / $index_row_size];
-# die $group->[3], " :: ", ($group->[3] - $group->[3] % $index_row_size) / $index_row_size if (($group->[3] - $group->[3] % $index_row_size) / $index_row_size);
+				my $l = $old_map_idx[$row]->[($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap];
+# die $group->[3], " :: ", ($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap if (($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap);
 # die "found $l" if $l;
-#die "ground index ", $rowindex[$row], "$l - " . (($group->[3] - $group->[3] % $index_row_size) / $index_row_size);
-#die "nop $l ", $org->{'mappings'}->[$row]->[$l]->[0], " -> ", $group->[3] if ($org->{'mappings'}->[$row]->[$l]->[0] ne $group->[3]);
+#die "ground index ", $old_map_idx[$row], "$l - " . (($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap);
+#die "nop $l ", $old->{'mappings'}->[$row]->[$l]->[0], " -> ", $group->[3] if ($old->{'mappings'}->[$row]->[$l]->[0] ne $group->[3]);
 
 my $dup = $l;
 				$l = 0 unless defined $l;
 my $qweqwe = 0;
 				# find original position from the right
 				# $l = scalar(@{$maps}); while ($l --)
-				for ($l; $l < scalar(@{$maps}); $l++)
+				for (; $l < scalar(@{$maps}); $l++)
 				{
 					$d ++;
-					# die "wrong $dup ", scalar @{$rowindex[$row]}, " a ", $group->[3], " - ", (($group->[3] - $group->[3] % $index_row_size) / $index_row_size) if $qweqwe ++ > 300;
+					# die "wrong $dup ", scalar @{$old_map_idx[$row]}, " a ", $group->[3], " - ", (($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap) if $qweqwe ++ > 300;
 					# get the original group
 					$original = $maps->[$l];
 					die unless $original;
@@ -382,8 +397,6 @@ my $qweqwe = 0;
 						die "can abort, will not find me";
 					}
 
-
-
 				}
 				# EO search from right
 
@@ -394,10 +407,10 @@ unless ($fafa)
 
 							$foo ++;
 #							die "skipp";
-						# die "we skipp $group->[0] " . @{$smap->{'mappings'}->[$row]} if $group->[0] && $row;
+						# die "we skipp $group->[0] " . @{$cur->{'mappings'}->[$row]} if $group->[0] && $row;
 							# group->[2] points to line 12983, col 3
 							# original->[12983] first item points at col 11
-							#warn "$a, ", join(", ", @{$group}), " ==== ", join(", ", @{$org->{'mappings'}->[$group->[2]]->[0]}), " --> ", $org->{'sources'}->[0];
+							# warn "$a, ", join(", ", @{$group}), " ==== ", join(", ", @{$old->{'mappings'}->[$group->[2]]->[0]}), " --> ", $old->{'sources'}->[0];
 							$group->[4] = -1;
 							last if $original;
 }
@@ -411,18 +424,18 @@ unless ($fafa)
 	}
 }
 	# replace sources (use original mappings)
-	$smap->{'sources'} = $org->{'sources'};
+	$cur->{'sources'} = $old->{'sources'};
 
 	my $counta = 0; my $countb = 0;
 
-	foreach my $foo (@{$smap->{'mappings'}})
+	foreach my $foo (@{$cur->{'mappings'}})
 	{ $counta += scalar (@{$foo}) }
-	foreach my $foo (@{$org->{'mappings'}})
+	foreach my $foo (@{$old->{'mappings'}})
 	{ $countb += scalar (@{$foo}) }
 
 	print "finished remap ($counta/$countb) -> init: $x / exact: $y / same line: $z / skipped: $foo\n";
 
-	foreach my $lna (@{$smap->{'mappings'}})
+	foreach my $lna (@{$cur->{'mappings'}})
 	{
 #		@{$lna} = grep { !$_->[4] || $_->[4] != -1 } @{$lna};
 	}
@@ -432,7 +445,7 @@ unless ($fafa)
 	print "the code took:",timestr($td)," $a $b $c $d\n";
 
 	# return object
-	return $smap;
+	return $cur;
 
 }
 
@@ -487,8 +500,8 @@ sub exporter
 
 			$_ = [
 				$_->[0] - $offset,
-				$_->[1] - $file ,
-				$_->[2] - $row ,
+				$_->[1] - $file,
+				$_->[2] - $row,
 				$_->[3] - $col
 				# $_->[4]
 			];
@@ -508,12 +521,14 @@ sub exporter
 }
 
 ###################################################################################################
+use File::Basename qw(dirname);
+use File::Spec::Functions qw(abs2rel);
 ###################################################################################################
 
 sub render
 {
 
-	my ($smap, $source) = @_;
+	my ($smap, $path) = @_;
 
 	# create json object
 	my $json = new JSON;
@@ -521,6 +536,7 @@ sub render
 	# get the mappins in internal format
 	my $mappings = $smap->{'mappings'};
 
+	# call exporter
 	$smap->exporter;
 
 	# convert to VLQ encoding
@@ -533,10 +549,24 @@ sub render
 	# process "lines"
 	@{$mappings};
 
+	# call importer
 	$smap->importer;
 
 	# prettify json
 	$json->pretty(0);
+
+	# get array reference to sources
+	# make copy if we alter something
+	my $sources = $smap->{'sources'};
+
+	# rebase to output path
+	if (defined $path)
+	{
+		# get the output directory
+		my $root = dirname $path;
+		# make all sources relative to the output directory
+		$sources = [ map { abs2rel($_, $root) } @{$sources} ];
+	}
 
 	# decode json data to perl hash
 	$json = $json->encode({
@@ -547,7 +577,7 @@ sub render
 		# array for indexed names
 		'names' => $smap->{'names'},
 		# array for source files
-		'sources' => $smap->{'sources'},
+		'sources' => $sources,
 		# array for source mappings
 		# one map entry for each line
 		'mappings' => $mappings,
