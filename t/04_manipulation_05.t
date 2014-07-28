@@ -39,9 +39,6 @@ is    ($smap->{'names'}->[3],                    'X',     'names index 3 is set 
 is    ($smap->{'names'}->[4],                    'Y',     'names index 4 is set to token Y');
 is    ($smap->{'names'}->[5],                    'Z',     'names index 5 is set to token Z');
 
-
-# exit;
-
 is    (scalar(@{$smap->{'mappings'}}),           3,       'mappings array has correct line count');
 
 is    (scalar(@{$smap->{'mappings'}->[0]}),      3,       'mappings line 0 array has correct group count');

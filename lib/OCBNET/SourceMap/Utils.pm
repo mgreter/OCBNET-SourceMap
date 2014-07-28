@@ -145,9 +145,12 @@ my $maps = $smap->{'mappings'};
 	# basic assertion that map is valid
 	if (scalar(@{$lines}) != scalar(@{$maps}) )
 	{
-		Carp::croak sprintf "%s [lines: %d, rows: %d]",
-			"map and input have different amount of lines",
-			scalar(@{$lines}), scalar(@{$maps}); sleep 1;
+		push @rv, sprintf "%s [lines: %d, rows: %d]",
+			"input and smap have different amount of lines (appended lines?)",
+			scalar(@{$lines}), scalar(@{$maps});
+#		Carp::croak sprintf "%s [lines: %d, rows: %d]",
+#			"map and input have different amount of lines",
+#			scalar(@{$lines}), scalar(@{$maps}); sleep 1;
 	}
 
 	# cache of loaded source files
@@ -243,7 +246,7 @@ my $maps = $smap->{'mappings'};
 
 				my $opener = '<span title="' . $title . '">'.$tok.'</span>';
 
-				substr $line, $col->[0] + $offset, 0, $opener;
+				eval { substr $line, $col->[0] + $offset, 0, $opener; }
 
 			}
 			else
@@ -259,6 +262,9 @@ my $maps = $smap->{'mappings'};
 	}
 
 print "final debugger\n";
+
+$smap->debug(10);
+
 
 	my @addon = ('<hr/><ul>');
 

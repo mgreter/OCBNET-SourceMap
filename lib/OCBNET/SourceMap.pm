@@ -21,6 +21,10 @@ require OCBNET::SourceMap::Row;
 require OCBNET::SourceMap::Col;
 ####################################################################################################
 
+# main functions are mixin and remap
+
+####################################################################################################
+
 sub new
 {
 
@@ -163,10 +167,37 @@ sub read
 		Carp::croak "source map version ", $json->{'version'}, " not implemented\n";
 	}
 
-
 	$smap->importer;
 
+	$smap->sanitize;
+
 return $smap;
+
+}
+
+sub sanitize
+{
+
+	my ($smap) = @_;
+
+	unless (defined $smap->{'lineCount'})
+	{
+		$smap->{'lineCount'} = scalar(@{$smap->{'mappings'}});
+	}
+
+	my $map = $smap->{'mappings'};
+
+	if (defined $map)
+	{
+		foreach my $row (@{$map})
+		{
+			bless $row, 'OCBNET::SourceMap::Row';
+			foreach my $col (@{$row})
+			{
+				bless $col, 'OCBNET::SourceMap::Col';
+			}
+		}
+	}
 
 }
 
@@ -180,6 +211,95 @@ return $smap;
 my $index_col_gap = 15;
 
 ####################################################################################################
+# remove a source from source array
+# need to update the index for all others
+####################################################################################################
+
+sub removeSource
+{
+
+	my ($smap, $idx) = @_;
+
+	my $maps = $smap->{'mappings'};
+
+	foreach my $row (@{$maps})
+	{
+		foreach my $col (@{$row})
+		{
+			if ($col->[1] > $idx)
+			{
+				$col->[1] --;
+			}
+			elsif ($col->[1] == $idx)
+			{
+				die "invalid state"
+			}
+		}
+	}
+
+	splice(@{$smap->{'sources'}}, $idx, 1);
+
+}
+
+####################################################################################################
+# remove any sources that are not referenced anymore
+####################################################################################################
+
+sub compress
+{
+
+	my ($smap) = @_;
+
+	my $maps = $smap->{'mappings'};
+
+	my @used;
+
+	foreach my $row (@{$maps})
+	{
+		foreach my $col (@{$row})
+		{
+			$used[$col->[1]] = 1;
+		}
+	}
+
+	for (my $i = 0; $i < scalar(@{$smap->{'sources'}}); $i++)
+	{
+		unless ($used[$i])
+		{
+			$smap->removeSource($i);
+		}
+	}
+
+}
+
+####################################################################################################
+# find the first entry on the left for the given position
+# result indicates in which source file this position is in
+####################################################################################################
+
+sub findLeft
+{
+
+	my $lines = 0; my $rv; my $lrow;
+	my ($smap, $frow, $fcol) = @_;
+	my $maps = $smap->{'mappings'};
+
+	foreach my $row (@{$maps})
+	{
+		my $line = $lines ++;
+		foreach my $col (@{$row})
+		{
+			$rv = $col; $lrow = $line;
+			last if $line < $frow;
+			return ($rv, $lrow) if $fcol <= $col->[0];
+
+			# my $offset = $col->[0];
+			# next if $src_idx != 0;
+		}
+		return ($rv, $lrow) if $line > $frow;
+	}
+	die "wha";
+}
 
 sub remap
 {
@@ -187,9 +307,80 @@ sub remap
 	my ($cur, $old) = @_;
 	print "generating remap\n";
 
+	# normally the current map should only consist of one source
+	# if there are multiple sources the process has imported more files
+	if (scalar(@{$cur->{'sources'}}) ne scalar(@{$old->{'sources'}}))
+	{
+#return $cur;
+		my %src2id;
+		my $lines = 0;
+
+		foreach my $source (@{$old->{'sources'}})
+		{
+			$src2id{$source} = scalar(@{$cur->{'sources'}});
+			push @{$cur->{'sources'}}, $source;
+		}
+
+	# I have read in one or more files still containing imports (old)
+	# the processor has resolved some or all includes and added them (cur)
+
+	# we may have two files in the old source map which have both one include
+	# the new source map should have three sources
+	# first entry is the combination of both original files
+	# the next entries are the includes within the original files
+
+	# we need to incorporate the new includes into the old source map
+	# rewrite entries for primary old sources to point pack to their
+
+
+	my $maps = $cur->{'mappings'};
+
+	foreach my $row (@{$maps})
+	{
+		my $line = $lines ++;
+		foreach my $col (@{$row})
+		{
+			my $offset += $col->[0];
+			my $src_idx += $col->[1] || 0;
+			my $src_row += $col->[2] || 0;
+			my $src_col += $col->[3] || 0;
+
+			next if $src_idx != 0;
+
+			my $path = $old->{'sources'}->[$src_idx];
+
+			# find the entry in old map of the
+			# source position we are pointing to
+
+			my ($src, $sln) = $old->findLeft($src_row, $src_col);
+
+			$col->[1] = $src2id{$old->source($src->[1])};
+			$col->[2] -= $sln if defined $sln;
+
+		}
+	}
+
+
+	# we should be able to spot the new entries
+
+#$old->debug(10);
+#print "x" x 60, "\n";
+$cur->debug(10);
+
+$cur->sanitize;
+$old->sanitize;
+
+$cur->compress;
+$old->compress;
+
+# HAVE TO UPDATE OLD???
+
+	# return object
+	return $cur;
+
+}
+
 	my ($fid) = (0);
-
-
 
 	use Benchmark;
 	my $t0 = Benchmark->new;
@@ -338,25 +529,18 @@ die "unexpected loop" if $row ne $group->[2];
 				die "remap has invalid state" unless $maps;
 				die "remap has invalid state" unless scalar(@{$maps});
 
-# $group->[3];
 my $original;
 
 # find a better offset from the cache -> go further on the $l
 				my $l = $old_map_idx[$row]->[($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap];
-# die $group->[3], " :: ", ($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap if (($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap);
-# die "found $l" if $l;
-#die "ground index ", $old_map_idx[$row], "$l - " . (($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap);
-#die "nop $l ", $old->{'mappings'}->[$row]->[$l]->[0], " -> ", $group->[3] if ($old->{'mappings'}->[$row]->[$l]->[0] ne $group->[3]);
 
 my $dup = $l;
 				$l = 0 unless defined $l;
 my $qweqwe = 0;
 				# find original position from the right
-				# $l = scalar(@{$maps}); while ($l --)
 				for (; $l < scalar(@{$maps}); $l++)
 				{
 					$d ++;
-					# die "wrong $dup ", scalar @{$old_map_idx[$row]}, " a ", $group->[3], " - ", (($group->[3] - $group->[3] % $index_col_gap) / $index_col_gap) if $qweqwe ++ > 300;
 					# get the original group
 					$original = $maps->[$l];
 					die unless $original;
@@ -366,8 +550,6 @@ my $qweqwe = 0;
 					{
 						# point to where we originaly point
 						$fid = $group->[1] = $original->[1]; # fid
-						# $group->[2] = $original->[2]; # row
-						# $group->[3] = $original->[3]; # col
 						# adjust col by possible previous offset
 						die "strange" if $row != $group->[2];
 						# found an exact match to go
@@ -403,14 +585,7 @@ my $qweqwe = 0;
 unless ($fafa)
 {
 
-#	die "japa" if $l == -1;
-
 							$foo ++;
-#							die "skipp";
-						# die "we skipp $group->[0] " . @{$cur->{'mappings'}->[$row]} if $group->[0] && $row;
-							# group->[2] points to line 12983, col 3
-							# original->[12983] first item points at col 11
-							# warn "$a, ", join(", ", @{$group}), " ==== ", join(", ", @{$old->{'mappings'}->[$group->[2]]->[0]}), " --> ", $old->{'sources'}->[0];
 							$group->[4] = -1;
 							last if $original;
 }
@@ -464,12 +639,18 @@ sub importer
 		my $offset = 0;
 		foreach (@{$line})
 		{
+
+			warn "\$_->[0] undefined" unless defined $_->[0];
+			# warn "\$_->[1] undefined" unless defined $_->[1];
+			# warn "\$_->[2] undefined" unless defined $_->[2];
+			# warn "\$_->[3] undefined" unless defined $_->[3];
+
 			my $group = [ @{$_} ];
 			$_ = [
 				$offset += $_->[0],
-				$file += $_->[1],
-				$row += $_->[2],
-				$col += $_->[3]
+				$file += $_->[1] || 0,
+				$row += $_->[2] || 0,
+				$col += $_->[3] || 0
 			];
 			next unless defined $group->[4];
 			$_->[4] = $name += $group->[4];
@@ -564,6 +745,7 @@ sub render
 	{
 		# get the output directory
 		my $root = dirname $path;
+		# warn "===================== $root";
 		# make all sources relative to the output directory
 		$sources = [ map { abs2rel($_, $root) } @{$sources} ];
 	}
@@ -598,6 +780,8 @@ sub add
 	my ($smap, $data, $add) = @_;
 
 	$smap->{'data'} = '' unless exists $smap->{'data'};
+
+warn "adding some $add\n";
 
 	# declare line mapping array
 	my $lines = $smap->{'mappings'};
@@ -680,24 +864,354 @@ sub append123
 }
 
 ###################################################################################################
+# remove some mappings
+###################################################################################################
+
+sub findRightRowCol
+{
+
+	# get input arguments
+	my ($smap, $row, $off) = @_;
+
+	$smap->{'mappings'}->[$row]->findRightCol($off);
+
+}
+
+sub findLeftRowCol
+{
+
+	# get input arguments
+	my ($smap, $row, $off) = @_;
+
+	$smap->{'mappings'}->[$row]->findLeftCol($off);
+
+}
+
+sub remove
+{
+
+	# get input arguments
+	my ($smap, $pos, $del) = @_;
+
+	# get array with mappings
+	my $maps = $smap->{'mappings'};
+
+	# get the map position variables
+	my ($pos_row, $pos_off) = @{$pos};
+	my ($del_row, $del_off) = @{$del};
+	# declare variables for processing
+	my ($row, $col) = ($pos_row, 0);
+
+#	my ($lead_col, $lead_off);
+#	my ($trail_col, $trail_off);
+
+	# basic assertion for valid row
+	if ($del_row >= scalar(@{$maps}))
+	{ Carp::croak "out of row boundaries"; }
+
+
+warn "remove $pos_row/$pos_off - $del_row/$del_off";
+
+	if ($pos_off == 0 && $del_off == 0)
+	{
+		die "just need to splice rows";
+	}
+
+	my $lead = $smap->findRightRowCol($row, $pos_off);
+
+	# now rows removed
+	if ($del_row == 0)
+	{
+		$pos_off += $del_off;
+	}
+	else
+	{
+		die "Must remove some rows";
+	}
+
+
+
+	my $trail = $smap->findLeftRowCol($row, $pos_off);
+
+	if ($lead <= $trail)
+	{
+		die "del $lead $trail";
+
+	}
+
+	# adjust the offset of all trailing entries in row
+	if ($del_off) { while ($maps->[$row]->[++ $trail])
+	{ $maps->[$row]->[$trail]->[0] -= $del_off; } }
+
+
+	# remove trailings
+	if ($col > 0)
+	{
+		# die "remove trailings";
+		# only if removing lines
+		# otherwise we need splice
+	}
+
+	while ($del_row -- > 0)
+	{
+		warn "remove row $del_row";
+	}
+
+
+
+	# remove leadings
+	# adjust offsets
+	if ($del_off > 0)
+	{
+		warn "del $lead $trail";
+	}
+
+#die $col;
+
+return "smap";
+
+	# remove full lines from the mappings
+	splice @{$maps}, $pos_row, $del_row;
+
+	# could check if we removed some boundaries
+	# maybe we removed a complete source file
+
+	# remove and adjust cols of the remaining last line
+	my $i = scalar(@{$maps->[$pos_row]}); while ($i --)
+	{
+		if ($maps->[$pos_row]->[$i]->[0] < $del_off)
+		{ splice @{$maps->[$pos_row]}, $i, $i; last }
+		else { $maps->[$pos_row]->[$i]->[0] -= $del_off; }
+	}
+
+	return $smap;
+
+}
+
+###################################################################################################
 # insert a generic string into the existing source map
 # the string may reference an existing file scope or pass
 # a new one. It can also have its own mapping, which
 # should then be mixed into the existing source map ...
 ###################################################################################################
 
+sub mapoffset
+{
+	# count all the lines
+	return [
+		$_[0] =~ tr/\n//,
+		length($_[0]) - rindex($_[0], "\n") - 1
+	];
+}
+
+sub replace
+{
+
+	# get passed input arguments
+	my ($smap, $data, $search, $replace, $straight) = @_;
+
+	my @matches; # get matches
+	while (${$data} =~ m/$search/g)
+	{ push @matches, [ [ @- ], [ @+ ] ] }
+
+	# process matches reversed unless option is set
+	@matches = reverse @matches unless ($straight);
+
+	# process all matches reversed
+	foreach my $match (@matches)
+	{
+		my $start = $match->[0]->[0];
+		my $stop = $match->[1]->[0];
+		my $len = $stop - $start;
+		my $before = substr(${$data}, 0, $start);
+		my $matched = substr(${$data}, $start, $len);
+
+		my ($result, $srcmap) = $replace->($matched);
+
+bless $srcmap, 'OCBNET::SourceMap::V3';
+$smap->sanitize;
+$srcmap->sanitize;
+
+		substr(${$data}, $start, $len, $result);
+
+		my $pos = mapoffset($before);
+		my $del = mapoffset($matched);
+		my $ins = mapoffset($result);
+
+		$smap->mixin22($pos, $del, $ins, $srcmap);
+
+
+
+#		&{$importer}($start, $stop);
+	}
+
+
+
+}
+
+###################################################################################################
+# adapt/assimilate another source map
+# merge additional sources and name tokens
+# returns a cloned object with adjusted indicies
+###################################################################################################
+
+sub adapt
+{
+
+	# get input arguments
+	my ($smap, $adapt) = @_;
+
+	# lookup variables
+	my $names = 0; my %names;
+	my $sources = 0; my %sources;
+
+	# create an object copy
+	$adapt = { %{$adapt} };
+
+	# create index of existing names
+	foreach (@{$smap->{'names'}})
+	{ $names{$_} = $names ++ }
+	foreach (@{$smap->{'sources'}})
+	{ $sources{$_} = $sources ++ }
+
+	# add new names to index
+	foreach (@{$adapt->{'names'}})
+	{
+		# skip if name is known
+		next if exists $names{$_};
+		# append name to our source map
+		push @{$smap->{'names'}}, $_;
+		# add name to lookup index
+		$names{$_} = $names ++;
+	}
+	foreach (@{$adapt->{'sources'}})
+	{
+		# skip if name is known
+		next if exists $sources{$_};
+		# append name to our source map
+		push @{$smap->{'sources'}}, $_;
+		# add name to lookup index
+		$sources{$_} = $sources ++;
+	}
+
+
+	# clone each row and every col entry
+	$adapt->{'mappings'} = [ map { [ map {
+
+		# create a copy
+		my @copy = @{$_};
+
+		# resolve to new source index if previous index was defined
+		if (scalar(@copy) >= 1) { $copy[1] = $sources{$adapt->{'sources'}->[$copy[1]]}; }
+		# resolve to new name token index if previous index was defined
+		if (scalar(@copy) >= 5) { $copy[4] = $names{$adapt->{'names'}->[$copy[4]]}; }
+
+		# assign copy
+		\ @copy;
+
+	} @{$_} ] } @{$adapt->{'mappings'}} ];
+
+	# return clone
+	return $adapt;
+
+}
+# EO adapt
+
+###################################################################################################
+###################################################################################################
+
+sub mixin22
+{
+
+	my ($smap, $pos, $del, $ins, $add) = @_;
+
+# 	$smap->remove($pos, $del) if defined $del;
+
+	# import add source map
+	# add sources and names to smap
+	# return rows that are adjusted
+	# updates name/source references
+	$add = $smap->adapt($add);
+
+	# get array with mappings
+	my $maps = $smap->{'mappings'};
+
+	# get the map position variables
+	my ($pos_row, $pos_off) = @{$pos};
+	my ($del_row, $del_off) = @{$del};
+	my ($ins_row, $ins_off) = @{$ins};
+
+	# find col index to start delete and insert operation
+	my $pos_col = $smap->findLeftRowCol($pos_row, $pos_off) + 1;
+
+	# increase offset of first line mapping entries
+	$add->{'mappings'}->[0]->addOffset($pos_off) if $pos_off;
+	# create new row object for append buffer
+	my $buffer = bless [], 'OCBNET::SourceMap::Row';
+	# get mappings to append later if we have additional line
+	@{$buffer} = splice @{$maps->[$pos_row]}, $pos_col if $pos_col != -1;
+
+	# insert the new mappings before lead column in old source map row
+	if ($pos_col == -1) { push @{$maps->[$pos_row]}, @{shift @{$add->{'mappings'}}}; }
+	else { splice @{$maps->[$pos_row]}, $pos_col, 0, @{shift @{$add->{'mappings'}}}; }
+
+	# check if we will remove a complete line
+	# align the offset for the buffered fragments
+	$_->[0] -= $pos_off + $ins_off foreach @{$buffer};
+
+	# we delete a whole line
+	if ($del_row > 0)
+	{
+		# store last line entries to be removed to buffer
+		# preserve entries if offsets are outside of range
+		push @{$buffer}, @{$maps->[$pos_row + $del_row]};
+	}
+
+	# replace complete row with new source maps (depends of del_row and ins_row)
+	splice @{$maps}, $pos_row + 1, $del_row, splice(@{$add->{'mappings'}}, 0, $ins_row);
+
+	# account for the delete offset range
+	$_->[0] -= $del_off foreach @{$buffer};
+
+	# remove all entries in the delete range
+	@{$buffer} = grep { $_->[0] > 0 } @{$buffer};
+	# normalize the offset to append after pos and ins
+	$_->[0] += $pos_off + $ins_off foreach @{$buffer};
+	# append the new entries to the row
+	push @{$maps->[$pos_row]}, @{$buffer};
+
+	# return object
+	return $smap;
+
+}
+
+
 sub mixin
 {
 
-	my ($smap, $start, $len, $insert) = @_;
+	my ($smap, $start, $del, $insert) = @_;
+bless $smap, "OCBNET::SourceMap::V3";
+$smap->sanitize;
+bless $insert, "OCBNET::SourceMap::V3";
+$insert->sanitize;
+	my $len = [
+		0,
+		0
+	];
 
-$insert = { 'mappings' => [], 'names' => [], 'sources' => [] } unless defined $insert;
+	return $smap->mixin22($start, $del, $len, $insert);
+
+	# insert should support scalar or string
+	# or be an actual source map object (hash)
+	# or offsets in array [lines to add, length of last line]
+#Carp::croak "asd mixin";
+	$insert = { 'mappings' => [], 'names' => [], 'sources' => [] } unless defined $insert;
 
 	my $row = $start->[0];
 	my $col = $start->[1];
 
-	my $delrow = $len->[0];
-	my $delcol = $len->[1];
+	my $delrow = $del->[0];
+	my $delcol = $del->[1];
 
 	# lookup variables
 	my $names = 0; my %names;
@@ -858,6 +1372,7 @@ if ($line)
 }
 
 	}
+
 	while (do
 	{
 
@@ -900,7 +1415,7 @@ if ($line)
 
 use Data::Dumper;
 
-#print Dumper($smap);
+# print Dumper($smap);
 	return $smap;
 
 }
@@ -1108,6 +1623,11 @@ sub mappings
 	Carp::croak "mappings not implemented";
 }
 
+sub source
+{
+	return $_[0]->{'sources'}->[$_[1]];
+}
+
 sub sources
 {
 	return @{$_[0]->{'sources'}};
@@ -1117,6 +1637,49 @@ sub names
 {
 	return @{$_[0]->{'names'}};
 }
+
+####################################################################################################
+
+sub debug
+{
+
+	my ($smap) = @_;
+
+	my $lines = 0;
+
+	my $srcs = $smap->{'sources'};
+	my $maps = $smap->{'mappings'};
+
+	foreach my $src (@{$srcs})
+	{
+
+		print "src ", $src, "\n";
+
+	}
+
+	foreach my $row (@{$maps})
+	{
+		my $line = $lines ++;
+		foreach my $col (@{$row})
+		{
+			my $offset = $col->[0];
+			my $src_idx = $col->[1] || 0;
+			my $src_row = $col->[2] || 0;
+			my $src_col = $col->[3] || 0;
+
+			my $path = $smap->{'sources'}->[$src_idx];
+			printf 'Ln %s, Col %s', $line + 1, $offset + 1;
+			print ' => ', substr($path, - 20), ' @ ';
+			printf 'Ln %s, Col %s', $src_row + 1, $src_col + 1;
+			print "\n";
+
+		}
+	}
+
+}
+
+####################################################################################################
+
 
 ####################################################################################################
 ####################################################################################################
