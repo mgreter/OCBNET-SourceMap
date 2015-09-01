@@ -9,6 +9,8 @@ use utf8;
 use strict;
 use warnings;
 
+our $VERSION = 0.01;
+
 ####################################################################################################
 use JSON qw(decode_json encode_json);
 use File::Slurp qw(read_file write_file);
